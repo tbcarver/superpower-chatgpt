@@ -5,7 +5,7 @@ let interval;
 let timeout;
 function getSingelConversation(conversationId, title) {
   getConversation(conversationId).then((conversation) => {
-    const conversationTitle = conversation.title.replaceAll('"', '');
+    const conversationTitle = conversation.title.replace(/[^a-zA-Z0-9]/g, '_');
     const createDate = new Date(conversation.create_time * 1000);
     const filePrefix = `${createDate.getHours()}-${createDate.getMinutes()}-${createDate.getSeconds()}`;
 
@@ -155,7 +155,7 @@ function addExportButton() {
 
   // export menu
   const exportMenu = document.createElement('div');
-  exportMenu.style = 'position:absolute;right:0px;bottom:44px;border:1px solid #565869;border-radius:4px;display:none;';
+  exportMenu.style = 'position:absolute;right:0px;bottom:44px;border:1px solid #565869;border-radius:4px;display:none;z-index:200;';
   exportMenu.id = 'export-menu';
   const divider = document.createElement('div');
   divider.style = 'height:1px;background-color:#565869;margin:0px 4px;';
@@ -240,7 +240,7 @@ function exportAllConversations(exportFormat) {
         return;
       }
       await getConversation(conversationId).then((conversation) => {
-        const conversationTitle = conversation.title.replace('"', '');
+        const conversationTitle = conversation.title.replace(/[^a-zA-Z0-9]/g, '_');
         let currentNode = conversation.current_node;
         const createDate = new Date(conversation.create_time * 1000);
         //  folderName = conversation.create_time in local time in the format of YYYY-MM-DD

@@ -36,6 +36,7 @@ async function addConversationToStorage(conv) {
       id: conv.id,
       shouldRefresh: false,
       archived: false,
+      saveHistory: true,
       skipped: false,
       ...conversation,
     };
@@ -46,7 +47,7 @@ async function addConversationToStorage(conv) {
           conversations: localConversations,
         });
         chrome.storage.sync.set({
-          conversationsOrder: conversationsOrder.includes(conv.id) ? conversationsOrder : [conv.id, ...conversationsOrder],
+          conversationsOrder: conversationsOrder.includes(conv.id?.slice(0, 5)) ? conversationsOrder : [conv.id?.slice(0, 5), ...conversationsOrder],
         });
       });
     }
@@ -56,6 +57,7 @@ async function addConversationToStorage(conv) {
         id: conv.id,
         shouldRefresh: false,
         archived: false,
+        saveHistory: true,
         skipped: true,
       };
       if (Object.keys(localConversations).length > 0) {
@@ -65,7 +67,7 @@ async function addConversationToStorage(conv) {
             conversations: localConversations,
           });
           chrome.storage.sync.set({
-            conversationsOrder: [conv.id, ...conversationsOrder],
+            conversationsOrder: [conv.id?.slice(0, 5), ...conversationsOrder],
           });
         });
       }
@@ -131,7 +133,9 @@ function updateOrCreateConversation(conversationId, message, parentId, settings,
           addConversationsEventListeners(existingConversation.id);
           const mapping = Object.values(existingConversation.mapping);
           if (generateTitle && existingConversation.title === 'New chat' && mapping.length < 5 && mapping.filter((m) => m.message?.author.role === 'assistant').length === 1) { // only one assistant message
-            generateTitleForConversation(existingConversation.id, message.id);
+            if (settings.saveHistory) {
+              generateTitleForConversation(existingConversation.id, message.id);
+            }
           } else if (settings.conversationTimestamp) { // === updated
             // move cnversationelemnt after searchbox
             const conversationElement = document.querySelector(`#conversation-button-${conversationId}`);
@@ -157,6 +161,7 @@ function updateOrCreateConversation(conversationId, message, parentId, settings,
         id: conversationId,
         shouldRefresh: false,
         archived: false,
+        saveHistory: settings.saveHistory,
         languageCode: settings.selectedLanguage.code,
         toneCode: settings.selectedTone.code,
         writingStyleCode: settings.selectedWritingStyle.code,
@@ -231,7 +236,7 @@ function addProgressBar() {
   nav.appendChild(syncDiv);
 }
 function checkConversationAreSynced(localConvs, remoteConvs) {
-  return Object.values(localConvs).filter((conv) => !conv.archived).length === remoteConvs.length;
+  return Object.values(localConvs).filter((conv) => !conv.archived && (typeof conv.saveHistory === 'undefined' || conv.saveHistory)).length === remoteConvs.length;
 }
 // eslint-disable-next-line no-unused-vars
 function refreshConversations(conversations) {
@@ -261,7 +266,7 @@ function initializeAutoSave(skipInputFormReload = false, forceRefreshIds = []) {
         if (result.conversations && Object.keys(result.conversations).length > 0) {
           localConversations = result.conversations;
         }
-        let newConversationsOrder = conversationsOrder && (conversationsOrder?.findIndex((f) => f.id === 'trash') !== -1)
+        const oldConversationsOrder = conversationsOrder && (conversationsOrder?.findIndex((f) => f.id === 'trash') !== -1)
           ? conversationsOrder
           : [{
             id: 'trash',
@@ -269,11 +274,27 @@ function initializeAutoSave(skipInputFormReload = false, forceRefreshIds = []) {
             conversationIds: [],
             isOpen: false,
           }];
-        chrome.storage.sync.set({
-          conversationsOrder: newConversationsOrder,
-        }, async () => {
-          chrome.storage.local.set({
-            conversationsAreSynced: false,
+        chrome.storage.local.set({
+          conversationsAreSynced: false,
+        }, () => {
+          // check if old conversations order include at least one id longer than 4 chars
+          const oldConversationsOrderHasLongIds = oldConversationsOrder.findIndex((conv) => {
+            if (typeof conv === 'string') {
+              return conv.length > 5;
+            }
+            return conv.id.length > 5 || conv.conversationIds.findIndex((id) => id.length > 5) !== -1;
+          }) !== -1;
+
+          const newConversationsOrder = oldConversationsOrderHasLongIds
+            ? oldConversationsOrder.map((conv) => {
+              if (typeof conv === 'string') {
+                return conv?.slice(0, 5);
+              }
+              return { ...conv, id: conv.id?.slice(0, 5), conversationIds: conv.conversationIds.map((id) => id?.slice(0, 5)) };
+            })
+            : oldConversationsOrder;
+          chrome.storage.sync.set({
+            conversationsOrder: newConversationsOrder,
           }, async () => {
             const remoteConvIds = remoteConversations.map((conv) => conv.id);
             const localConvIds = Object.keys(localConversations);
@@ -281,7 +302,9 @@ function initializeAutoSave(skipInputFormReload = false, forceRefreshIds = []) {
             const visibleAndRefreshedLocalConvIds = Object.keys(localConversations).filter((id) => !localConversations[id].archived && !localConversations[id].shouldRefresh);
 
             for (let i = 0; i < localConvIds.length; i += 1) {
-              localConversations[localConvIds[i]].title = remoteConversations.find((conv) => conv.id === localConvIds[i])?.title || localConversations[localConvIds[i]].title;
+              const remoteConv = remoteConversations.find((conv) => conv.id === localConvIds[i]) || localConversations[localConvIds[i]];
+              localConversations[localConvIds[i]].title = remoteConv.title;
+              localConversations[localConvIds[i]].update_time = remoteConv.update_time;
               // delete conversation key(legacy)
               const localConv = localConversations[localConvIds[i]];
               if ('conversation' in localConv) {
@@ -302,17 +325,20 @@ function initializeAutoSave(skipInputFormReload = false, forceRefreshIds = []) {
               if (typeof localConversations[localConvIds[i]].archived === 'undefined') {
                 localConversations[localConvIds[i]].archived = false;
               }
+              if (localConv.saveHistory === undefined) {
+                localConv.saveHistory = true;
+              }
               // archive deleted conversations
-              if (localConv.id && !remoteConvIds.includes(localConv.id)) {
+              if (localConv.id && localConv.saveHistory && !remoteConvIds.includes(localConv.id)) {
                 localConversations[localConvIds[i]].archived = true;
                 // check conversations
-                if (newConversationsOrder.indexOf(localConv.id) !== -1) {
-                  newConversationsOrder.splice(newConversationsOrder.indexOf(localConv.id), 1);
+                if (newConversationsOrder.indexOf(localConv.id?.slice(0, 5)) !== -1) {
+                  newConversationsOrder.splice(newConversationsOrder.indexOf(localConv.id?.slice(0, 5)), 1);
                 } else {
                   // check folders
                   newConversationsOrder.forEach((folder) => {
-                    if (typeof folder === 'object' && folder.id !== 'trash' && folder.conversationIds.indexOf(localConv.id) !== -1) {
-                      folder.conversationIds.splice(folder.conversationIds.indexOf(localConv.id), 1);
+                    if (typeof folder === 'object' && folder.id !== 'trash' && folder.conversationIds.indexOf(localConv.id?.slice(0, 5)) !== -1) {
+                      folder.conversationIds.splice(folder.conversationIds.indexOf(localConv.id?.slice(0, 5)), 1);
                     }
                   });
                 }
@@ -321,8 +347,8 @@ function initializeAutoSave(skipInputFormReload = false, forceRefreshIds = []) {
                 // remove duplicate conversation from trash folder(to be safe)
                 trashFolder.conversationIds = [...new Set(trashFolder.conversationIds)];
                 // add conversation to the begining of trash folder
-                if (!trashFolder?.conversationIds.includes(localConv.id)) {
-                  newConversationsOrder.find((folder) => folder?.id === 'trash')?.conversationIds.unshift(localConv.id);
+                if (!trashFolder?.conversationIds.includes(localConv.id?.slice(0, 5))) {
+                  newConversationsOrder.find((folder) => folder?.id === 'trash')?.conversationIds.unshift(localConv.id?.slice(0, 5));
                 }
               }
               // update conversations if shouldRefresh is true
@@ -350,11 +376,11 @@ function initializeAutoSave(skipInputFormReload = false, forceRefreshIds = []) {
               if (localConvIds.includes(remoteConvIds[i]) && !visibleAndNotSkippedLocalConvIds.includes(remoteConvIds[i])) {
                 localConversations[remoteConvIds[i]].archived = false;
               }
-              if (!allVisibleConversationsOrderIds.includes(remoteConvIds[i])) {
+              if (!allVisibleConversationsOrderIds.includes(remoteConvIds[i]?.slice(0, 5))) {
                 if (!conversationsOrder || conversationsOrder.length === 0) { // if conversationsOrder does not exist, add to the end of it right before trash folder (last element -1)
-                  newConversationsOrder.splice(newConversationsOrder.length - 1, 0, remoteConvIds[i]);
+                  newConversationsOrder.splice(newConversationsOrder.length - 1, 0, remoteConvIds[i]?.slice(0, 5));
                 } else { // if conversationsOrder exists, add to the begining of it
-                  newConversationsOrder.unshift(remoteConvIds[i]);
+                  newConversationsOrder.unshift(remoteConvIds[i]?.slice(0, 5));
                 }
               }
               if (forceRefreshIds.includes(remoteConvIds[i])
@@ -370,27 +396,40 @@ function initializeAutoSave(skipInputFormReload = false, forceRefreshIds = []) {
                   const progressLabel = document.getElementById('sync-progresslabel');
                   if (progressLabel) {
                     // eslint-disable-next-line no-loop-func
-                    progressLabel.innerText = `Syncing(${Object.keys(localConversations).filter((id) => !localConversations[id].archived).length}/${remoteConvIds.length})`;
+                    progressLabel.innerText = `Syncing(${Object.keys(localConversations).filter((id) => !localConversations[id].archived && (typeof localConversations[id].saveHistory === 'undefined' || localConversations[id].saveHistory)).length}/${remoteConvIds.length})`;
                   }
                   await countDownAsync(isPaid);
                 }
               }
             }
-            // remove duplicate from newConversationsOrder and remove duplicates from conversationsIds in each folder
-            newConversationsOrder = [...new Set(newConversationsOrder)];
-            newConversationsOrder.forEach((folder) => {
+            // remove duplicate convids from newConversationsOrder and remove duplicates from conversationsIds in each folder
+            newConversationsOrder.forEach((folder, index) => {
+              if (typeof folder === 'string') {
+                if (newConversationsOrder.indexOf(folder) !== newConversationsOrder.lastIndexOf(folder)) {
+                  newConversationsOrder.splice(newConversationsOrder.lastIndexOf(folder), 1);
+                }
+              }
               if (typeof folder === 'object') {
                 folder.conversationIds = [...new Set(folder.conversationIds)];
+                newConversationsOrder[index] = folder;
+                // compare inside and outside folders
+                for (let i = 0; i < folder.conversationIds.length; i += 1) {
+                  if (newConversationsOrder.indexOf(folder.conversationIds[i]) !== -1) {
+                    newConversationsOrder.splice(newConversationsOrder.indexOf(folder.conversationIds[i]), 1);
+                  }
+                }
               }
             });
+
             const conversationsAreSynced = checkConversationAreSynced(localConversations, remoteConversations);
+
             if (conversationsAreSynced) {
-              chrome.storage.sync.set({
-                conversationsOrder: newConversationsOrder,
+              chrome.storage.local.set({
+                conversations: localConversations,
+                conversationsAreSynced,
               }, () => {
-                chrome.storage.local.set({
-                  conversations: localConversations,
-                  conversationsAreSynced,
+                chrome.storage.sync.set({
+                  conversationsOrder: newConversationsOrder,
                 }, () => {
                   clearTimeout(initializeTimoutId);
                   const progressBar = document.getElementById('sync-progressbar');

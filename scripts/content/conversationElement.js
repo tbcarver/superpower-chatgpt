@@ -3,7 +3,7 @@
 /* global formatDate, showAllCheckboxes, hideAllButLastCheckboxes, deleteConversation, renameConversation, loadConversation, highlight, showNewChatPage, createSearchBox, emptyFolderElement, shiftKeyPressed:true */
 
 const notSelectedClassList = 'flex py-3 px-3 pr-3 w-full items-center gap-3 relative rounded-md hover:bg-[#2A2B32] cursor-pointer break-all hover:pr-14 group';
-const selectedClassList = 'flex py-3 px-3 pr-3 w-full items-center gap-3 relative rounded-md cursor-pointer break-all hover:pr-14 bg-gray-800 hover:bg-gray-800 group selected';
+const selectedClassList = 'flex py-3 px-3 pr-3 w-full items-center gap-3 relative rounded-md cursor-pointer break-all hover:pr-14 bg-gray-800 hover:bg-gray-800 group selected border-l border-green-500';
 
 function getConversationElementClassList(conversation) {
   const { pathname } = new URL(window.location.toString());
@@ -51,8 +51,10 @@ function createConversation(conversation, conversationTimestamp = false, searchV
   conversationElementIcon.classList = 'w-4 h-4';
   if (conversation.archived) {
     conversationElementIcon.src = chrome.runtime.getURL('icons/trash.png');
-  } else {
+  } else if (conversation.saveHistory) {
     conversationElementIcon.src = chrome.runtime.getURL('icons/bubble.png');
+  } else {
+    conversationElementIcon.src = chrome.runtime.getURL('icons/bubble-purple.png');
   }
   conversationElement.appendChild(conversationElementIcon);
   const conversationTitle = document.createElement('div');
@@ -189,13 +191,13 @@ function confirmActions(conversation, action) {
             }
 
             // remove conversationId from conversationsOrder
-            let conversationOrderIndex = conversationsOrder.findIndex((id) => id === conversation.id);
+            let conversationOrderIndex = conversationsOrder.findIndex((id) => id === conversation.id?.slice(0, 5));
             if (conversationOrderIndex !== -1) {
               conversationsOrder.splice(conversationOrderIndex, 1);
             } else { // if not found, look into folders
-              const conersationFolder = conversationsOrder.find((f) => (f.id !== 'trash') && (f.conversationIds.includes(conversation.id)));
+              const conersationFolder = conversationsOrder.find((f) => (f.id !== 'trash') && (f.conversationIds.includes(conversation.id?.slice(0, 5))));
               if (conersationFolder) {
-                conversationOrderIndex = conersationFolder.conversationIds.findIndex((id) => id === conversation.id);
+                conversationOrderIndex = conersationFolder.conversationIds.findIndex((id) => id === conversation.id?.slice(0, 5));
                 conersationFolder.conversationIds.splice(conversationOrderIndex, 1);
                 // if folder is empty now, add empty folder element
                 if (conersationFolder.conversationIds.length === 0) {
@@ -205,8 +207,8 @@ function confirmActions(conversation, action) {
               }
             }
             // update trash folder
-            if (!trashFolder.conversationIds.includes(conversation.id)) {
-              conversationsOrder.find((folder) => folder.id === 'trash').conversationIds.unshift(conversation.id);
+            if (!trashFolder.conversationIds.includes(conversation.id?.slice(0, 5))) {
+              conversationsOrder.find((folder) => folder.id === 'trash').conversationIds.unshift(conversation.id?.slice(0, 5));
             }
             // update conversationsOrder
             chrome.storage.sync.set({
@@ -295,6 +297,7 @@ function addCheckboxToConversationElement(conversationElement, conversation) {
       event.stopPropagation();
       chrome.storage.local.get(['lastSelectedConversation', 'conversations', 'selectedConversations'], (res) => {
         const { lastSelectedConversation, selectedConversations, conversations } = res;
+        // uncheck
         if (!event.target.checked) {
           const newSelectedConversations = selectedConversations.filter((conv) => conv.id !== conversation.id);
           chrome.storage.local.set({ selectedConversations: newSelectedConversations }, () => {
@@ -304,6 +307,7 @@ function addCheckboxToConversationElement(conversationElement, conversation) {
             updateButtonsAfterSelection(selectedConversations, newSelectedConversations);
           });
         }
+        // single check
         if (event.target.checked && ((!event.shiftKey && !shiftKeyPressed) || selectedConversations.length === 0)) {
           const newSelectedConversations = [...selectedConversations, conversation];
 
@@ -317,6 +321,7 @@ function addCheckboxToConversationElement(conversationElement, conversation) {
             updateButtonsAfterSelection(selectedConversations, newSelectedConversations);
           });
         }
+        // shift check
         if (event.target.checked && (event.shiftKey || shiftKeyPressed) && selectedConversations.length > 0) {
           shiftKeyPressed = false;
           const newSelectedConversations = [...selectedConversations, conversation];
@@ -325,49 +330,50 @@ function addCheckboxToConversationElement(conversationElement, conversation) {
             const { conversationsOrder } = syncResult;
             if (lastSelectedConversation) {
               // find last conversation index in conversationsOrder
-              let lastConversationIndex = conversationsOrder.findIndex((c) => c === lastSelectedConversation.id);
-              let newConversationIndex = conversationsOrder.findIndex((c) => c === conversation.id);
+              let lastConversationIndex = conversationsOrder.findIndex((c) => c === lastSelectedConversation.id?.slice(0, 5));
+              let newConversationIndex = conversationsOrder.findIndex((c) => c === conversation.id?.slice(0, 5));
 
               if (lastConversationIndex === -1 || newConversationIndex === -1) {
-                const folderConatainingLastConversation = conversationsOrder.find((f) => f.conversationIds?.find((cid) => cid === lastSelectedConversation.id));
+                const folderConatainingLastConversation = conversationsOrder.find((f) => f.conversationIds?.find((cid) => cid === lastSelectedConversation.id?.slice(0, 5)));
 
-                const folderConatainingNewConversation = conversationsOrder.find((f) => f.conversationIds?.find((cid) => cid === conversation.id));
+                const folderConatainingNewConversation = conversationsOrder.find((f) => f.conversationIds?.find((cid) => cid === conversation.id?.slice(0, 5)));
 
                 if (folderConatainingLastConversation?.id === folderConatainingNewConversation?.id) {
-                  lastConversationIndex = folderConatainingLastConversation?.conversationIds?.findIndex((cid) => cid === lastSelectedConversation.id);
-                  newConversationIndex = folderConatainingNewConversation?.conversationIds?.findIndex((cid) => cid === conversation.id);
-                  const conversationsToSelect = folderConatainingLastConversation.conversationIds.slice(Math.min(lastConversationIndex, newConversationIndex) + 1, Math.max(lastConversationIndex, newConversationIndex)).filter((f) => typeof f === 'string');
+                  lastConversationIndex = folderConatainingLastConversation?.conversationIds?.findIndex((cid) => cid === lastSelectedConversation.id?.slice(0, 5));
+                  newConversationIndex = folderConatainingNewConversation?.conversationIds?.findIndex((cid) => cid === conversation.id?.slice(0, 5));
+                  const conversationsToSelect = folderConatainingLastConversation.conversationIds?.slice(Math.min(lastConversationIndex, newConversationIndex) + 1, Math.max(lastConversationIndex, newConversationIndex)).filter((f) => typeof f === 'string');
 
                   // click on the new conversation to select it
                   conversationsToSelect.forEach((cid) => {
-                    if (!selectedConversations.map((conv) => conv.id).includes(cid)) {
-                      newSelectedConversations.push(conversations[cid]);
+                    const conv = Object.values(conversations).find((c) => c.id?.slice(0, 5) === cid);
+                    if (!selectedConversations.map((c) => c.id).includes(conv.id)) {
+                      newSelectedConversations.push(conv);
                     }
-                    const convElement = document.querySelector(`#checkbox-wrapper-${cid}`);
+                    const convElement = document.querySelector(`#checkbox-wrapper-${conv.id}`);
 
                     if (convElement && !convElement.querySelector('#checkbox').checked) {
                       convElement.querySelector('#checkbox').checked = true;
                     }
                   });
-                  chrome.storage.local.set({ selectedConversations: newSelectedConversations });
                 }
               } else {
                 // select all conversations between the last selected and the current one
-                const conversationsToSelect = conversationsOrder.slice(Math.min(lastConversationIndex, newConversationIndex) + 1, Math.max(lastConversationIndex, newConversationIndex)).filter((f) => typeof f === 'string');
+                const conversationsToSelect = conversationsOrder?.slice(Math.min(lastConversationIndex, newConversationIndex) + 1, Math.max(lastConversationIndex, newConversationIndex)).filter((f) => typeof f === 'string');
 
                 // click on the new conversation to select it
                 conversationsToSelect.forEach((cid) => {
-                  if (!selectedConversations.map((conv) => conv.id).includes(cid)) {
-                    newSelectedConversations.push(conversations[cid]);
+                  const conv = Object.values(conversations).find((c) => c.id?.slice(0, 5) === cid);
+                  if (!selectedConversations.map((c) => c.id).includes(conv.id)) {
+                    newSelectedConversations.push(conv);
                   }
-                  const convElement = document.querySelector(`#checkbox-wrapper-${cid}`);
+                  const convElement = document.querySelector(`#checkbox-wrapper-${conv.id}`);
 
                   if (convElement && !convElement.querySelector('#checkbox').checked) {
                     convElement.querySelector('#checkbox').checked = true;
                   }
                 });
-                chrome.storage.local.set({ selectedConversations: newSelectedConversations });
               }
+              chrome.storage.local.set({ selectedConversations: newSelectedConversations });
               updateButtonsAfterSelection(selectedConversations, newSelectedConversations);
             }
             chrome.storage.local.set({ lastSelectedConversation: conversation });
@@ -389,27 +395,19 @@ function addCheckboxToConversationElement(conversationElement, conversation) {
     });
   });
 }
-function updateButtonsAfterSelection(selectedConversations, newSelectedConversations) {
+function updateButtonsAfterSelection(previousSelectedConversations, newSelectedConversations) {
+  const previousText = previousSelectedConversations.length === 0 ? 'All' : `${previousSelectedConversations.length} Selected`;
+  const newText = newSelectedConversations.length === 0 ? 'All' : `${newSelectedConversations.length} Selected`;
   const nav = document.querySelector('nav');
-  const newChatButton = nav.querySelector('a');
+  const newChatButton = nav?.querySelector('a');
   // chenge export all to export selected
   const exportAllButton = document.querySelector('#export-all-button');
   if (exportAllButton) {
-    // keep export all icon, but change the text
-    if (newSelectedConversations.length === 1) {
-      exportAllButton.innerHTML = exportAllButton.innerHTML.replace('Export All', `Export ${newSelectedConversations.length} Selected`);
-    } else {
-      exportAllButton.innerHTML = exportAllButton.innerHTML.replace(`Export ${selectedConversations.length} Selected`, `Export ${newSelectedConversations.length} Selected`);
-    }
+    exportAllButton.innerHTML = exportAllButton.innerHTML.replace(`Export ${previousText}`, `Export ${newText}`);
   }
   const deleteConversationsButton = document.querySelector('#delete-conversations-button');
   if (deleteConversationsButton) {
-    // keep export all icon, but change the text
-    if (newSelectedConversations.length === 1) {
-      deleteConversationsButton.innerHTML = deleteConversationsButton.innerHTML.replace('Delete All', `Delete ${newSelectedConversations.length} Selected`);
-    } else {
-      deleteConversationsButton.innerHTML = deleteConversationsButton.innerHTML.replace(`Delete ${selectedConversations.length} Selected`, `Delete ${newSelectedConversations.length} Selected`);
-    }
+    deleteConversationsButton.innerHTML = deleteConversationsButton.innerHTML.replace(`Delete ${previousText}`, `Delete ${newText}`);
   }
   if (newSelectedConversations.length > 0) {
     // show an x svg followed by clear selection

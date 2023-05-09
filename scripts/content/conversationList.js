@@ -1,6 +1,6 @@
 /* eslint-disable no-restricted-globals */
 // eslint-disable-next-line no-unused-vars
-/* global markdown, initializeNavbar, generateInstructions, generateChat, SSE, formatDate, loadConversation, resetSelection, katex, texmath, rowUser, rowAssistant, updateOrCreateConversation, replaceTextAreaElemet, highlight, isGenerating:true, disableTextInput:true, generateTitle, debounce, initializeRegenerateResponseButton, initializeStopGeneratingResponseButton, toggleTextAreaElemet, showNewChatPage, chatStreamIsClosed:true, addCopyCodeButtonsEventListeners, addScrollDetector, scrolUpDetected:true, Sortable, updateInputCounter, addUserPromptToHistory, getGPT4CounterMessageCapWindow, createFolder, getConversationElementClassList, notSelectedClassList, selectedClassList, conversationActions, addCheckboxToConversationElement, createConversation, deleteConversation, handleQueryParams, addScrollButtons */
+/* global markdown, initializeNavbar, generateInstructions, generateChat, SSE, formatDate, loadConversation, resetSelection, katex, texmath, rowUser, rowAssistant, updateOrCreateConversation, replaceTextAreaElemet, highlight, isGenerating:true, disableTextInput:true, generateTitle, debounce, initializeRegenerateResponseButton, initializeStopGeneratingResponseButton, toggleTextAreaElemet, showNewChatPage, chatStreamIsClosed:true, addCopyCodeButtonsEventListeners, addScrollDetector, scrolUpDetected:true, Sortable, updateInputCounter, addUserPromptToHistory, getGPT4CounterMessageCapWindow, createFolder, getConversationElementClassList, notSelectedClassList, selectedClassList, conversationActions, addCheckboxToConversationElement, createConversation, deleteConversation, handleQueryParams, addScrollButtons, updateTotalCounter */
 
 // Initial state
 let userChatIsActuallySaved = false;
@@ -35,7 +35,7 @@ function removeOriginalConversationList() {
         const isToFolder = to.id.startsWith('folder-content-');
 
         const fromId = 'conversation-list';
-        const toId = isToFolder ? to.id.split('folder-content-')[1] : 'conversation-list';
+        const toId = isToFolder ? to.id.split('folder-content-')[1]?.slice(0, 5) : 'conversation-list';
         if (oldDraggableIndex === newDraggableIndex && toId === fromId) return;
 
         if (!isFolder && isToFolder && toId === 'trash') {
@@ -101,7 +101,7 @@ function createSearchBox() {
     searchbox.id = 'conversation-search';
     searchbox.tabIndex = 0;
     searchbox.placeholder = 'Search conversations';
-    searchbox.classList = 'w-full px-4 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm bg-gray-800 conversation-search';
+    searchbox.classList = 'w-full px-4 py-2 mr-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm bg-gray-800 conversation-search';
     searchbox.addEventListener('keydown', (event) => {
       if (event.key === 'ArrowDown') {
         // chatStreamIsClosed = true;
@@ -143,13 +143,14 @@ function createSearchBox() {
           const allConversations = Object.values(conversations).filter((c) => !c.skipped);
           let filteredConversations = allConversations.sort((a, b) => b.create_time - a.create_time);
 
+          resetSelection();
           if (searchValue) {
             filteredConversations = allConversations.filter((c) => (
               c.title?.toLowerCase()?.includes(searchValue.toLowerCase())
               || Object.values(c.mapping).map((m) => m?.message?.content?.parts?.join(' ')?.replace(/## Instructions[\s\S]*## End Instructions\n\n/, ''))
                 .join(' ')?.toLowerCase()
                 .includes(searchValue.toLowerCase())));
-            const filteredConversationIds = filteredConversations.map((c) => c.id);
+            const filteredConversationIds = filteredConversations.map((c) => c.id.slice(0, 5));
             // convert filtered conversations to object with id as key
             const filteredConversationsObj = filteredConversations.reduce((acc, cur) => {
               acc[cur.id] = cur;
@@ -170,7 +171,7 @@ function createSearchBox() {
 
     const newFolderButton = document.createElement('button');
     newFolderButton.id = 'new-folder-button';
-    newFolderButton.classList = 'w-12 h-full flex items-center justify-center ml-2 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm bg-gray-800 border border-gray-800';
+    newFolderButton.classList = 'w-12 h-full flex items-center justify-center rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm bg-gray-800 border border-gray-800';
     const newFoolderIcon = document.createElement('img');
     newFoolderIcon.classList = 'w-5 h-5';
     newFoolderIcon.src = chrome.runtime.getURL('icons/new-folder.png');
@@ -195,7 +196,7 @@ function createSearchBox() {
       chrome.storage.sync.get(['conversationsOrder'], (syncResult) => {
         chrome.storage.local.get(['settings'], (result) => {
           const newFolder = {
-            id: self.crypto.randomUUID(), name: 'New Folder', conversationIds: [], isOpen: true,
+            id: self.crypto.randomUUID().slice(0, 5), name: 'New Folder', conversationIds: [], isOpen: true,
           };
           const { conversationsOrder } = syncResult;
           const { settings } = result;
@@ -253,8 +254,10 @@ function prependConversation(conversation) {
   conversationElementIcon.classList = 'w-4 h-4';
   if (conversation.archived) {
     conversationElementIcon.src = chrome.runtime.getURL('icons/trash.png');
-  } else {
+  } else if (conversation.saveHistory) {
     conversationElementIcon.src = chrome.runtime.getURL('icons/bubble.png');
+  } else {
+    conversationElementIcon.src = chrome.runtime.getURL('icons/bubble-purple.png');
   }
   conversationElement.appendChild(conversationElementIcon);
   const conversationTitle = document.createElement('div');
@@ -290,7 +293,7 @@ function prependConversation(conversation) {
   }
   chrome.storage.sync.get(['conversationsOrder'], (result) => {
     const { conversationsOrder } = result;
-    chrome.storage.sync.set({ conversationsOrder: [conversation.id, ...conversationsOrder] });
+    chrome.storage.sync.set({ conversationsOrder: [conversation.id?.slice(0, 5), ...conversationsOrder] });
   });
 
   // after adding first conversation
@@ -337,7 +340,8 @@ function loadStorageConversations(conversations, conversationsOrder = [], search
         const folderElement = createFolder(conversation, conversationTimestamp, conversations);
         conversationList.appendChild(folderElement);
       } else {
-        const conversationElement = createConversation(conversations[conversation], conversationTimestamp, searchValue);
+        const conv = Object.values(conversations).find((c) => c.id?.slice(0, 5) === conversation);
+        const conversationElement = createConversation(conv, conversationTimestamp, searchValue);
         conversationList.appendChild(conversationElement);
       }
     }
@@ -373,7 +377,8 @@ function updateNewChatButtonSynced() {
     const inputForm = main.querySelector('form');
     const textAreaElement = inputForm.querySelector('textarea');
     const nav = document.querySelector('nav');
-    const newChatButton = nav.querySelector('a');
+    const newChatButton = nav?.querySelector('a');
+    newChatButton.classList = 'flex py-3 px-3 items-center gap-3 transition-colors duration-200 text-white cursor-pointer text-sm rounded-md border border-white/20 hover:bg-gray-500/10 mb-1 flex-shrink-0';
     // clone newChatButton
     if (conversationsAreSynced) {
       const newChatButtonClone = newChatButton.cloneNode(true);
@@ -420,7 +425,8 @@ function submitChat(userInput, conversation, messageId, parentId, settings, mode
   if (syncDiv) syncDiv.style.opacity = '0.3';
   if (!regenerateResponse) initializeRegenerateResponseButton();
   chatStreamIsClosed = false;
-  generateChat(userInput, conversation?.id, messageId, parentId).then((chatStream) => {
+  const saveHistory = conversation?.id ? conversation.saveHistory : settings.saveHistory;
+  generateChat(userInput, conversation?.id, messageId, parentId, saveHistory).then((chatStream) => {
     userChatIsActuallySaved = regenerateResponse;
     let userChatSavedLocally = regenerateResponse; // false by default unless regenerateResponse is true
     let assistantChatSavedLocally = false;
@@ -457,6 +463,7 @@ function submitChat(userInput, conversation, messageId, parentId, settings, mode
         toggleTextAreaElemet();
         initializeStopGeneratingResponseButton();
         initializeRegenerateResponseButton();
+        updateTotalCounter();
       } else if (e.event === 'ping') {
         // console.error('PING RECEIVED', e);
       } else {
@@ -675,7 +682,8 @@ function overrideSubmitForm() {
           const lastMessage = allMessages[allMessages.length - 1];
           const parentId = lastMessage?.id?.split('message-wrapper-')[1] || self.crypto.randomUUID();
           // remove main first child
-          main.removeChild(main.firstChild);
+          const contentWrapper = main.querySelector('.flex-1.overflow-hidden');
+          main.removeChild(contentWrapper);
 
           const outerDiv = document.createElement('div');
           outerDiv.classList = 'flex-1 overflow-hidden';
@@ -692,6 +700,13 @@ function overrideSubmitForm() {
           bottomDiv.id = 'conversation-bottom';
           bottomDiv.classList = 'w-full h-32 md:h-48 flex-shrink-0';
           conversationDiv.appendChild(bottomDiv);
+          const bottomDivContent = document.createElement('div');
+          bottomDivContent.classList = 'relative text-base gap-4 md:gap-6 m-auto md:max-w-2xl lg:max-w-2xl xl:max-w-3xl flex lg:px-0';
+          bottomDiv.appendChild(bottomDivContent);
+          const totalCounter = document.createElement('div');
+          totalCounter.id = 'total-counter';
+          totalCounter.style = 'position: absolute; top: 0px; right: 0px; font-size: 10px; color: rgb(153, 153, 153); opacity: 0.8; z-index: 100;';
+          bottomDivContent.appendChild(totalCounter);
 
           innerDiv.appendChild(conversationDiv);
           outerDiv.appendChild(innerDiv);
@@ -760,8 +775,8 @@ function setBackButtonDetection() {
 
 // eslint-disable-next-line no-unused-vars
 function loadConversationList(skipInputFormReload = false) {
-  chrome.storage.sync.get(['conversationsOrder'], async (res) => {
-    chrome.storage.local.get(['conversations', 'conversationsAreSynced', 'settings'], async (result) => {
+  chrome.storage.sync.get(['conversationsOrder'], (res) => {
+    chrome.storage.local.get(['conversations', 'conversationsAreSynced', 'settings'], (result) => {
       if (result.conversationsAreSynced && typeof result.conversations !== 'undefined') {
         updateNewChatButtonSynced();
         if (!skipInputFormReload) initializeNavbar();

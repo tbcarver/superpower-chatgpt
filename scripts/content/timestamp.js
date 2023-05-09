@@ -34,7 +34,7 @@ function hideAllButLastCheckboxes(lastCheckboxId) {
 function resetSelection() {
   const nav = document.querySelector('nav');
   if (!nav) return;
-  const newChatButton = nav.querySelector('a');
+  const newChatButton = nav?.querySelector('a');
   if (newChatButton.textContent.toLocaleLowerCase() !== 'new chat') {
     newChatButton.innerHTML = '<svg stroke="currentColor" fill="none" stroke-width="2" viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4" height="1em" width="1em" xmlns="http://www.w3.org/2000/svg"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>New chat';
     const exportAllButton = document.querySelector('#export-all-button');
@@ -60,6 +60,7 @@ function resetSelection() {
   });
 }
 function updateTimestamp(conversationList) {
+  if (!conversationList) return;
   const chatButtons = conversationList.querySelectorAll('a');
   chrome.storage.local.get(['selectedConversations'], (result) => {
     const selectedConvs = result.selectedConversations;
@@ -142,35 +143,35 @@ function updateTimestamp(conversationList) {
               if (event.target.checked && (event.shiftKey || shiftKeyPressed) && selectedConversations.length > 0) {
                 shiftKeyPressed = false;
                 const newSelectedConversations = [...selectedConversations, conversation];
-                const conversationsOrder = Array.from(conversationList.querySelectorAll('[id^=checkbox-wrapper-]')).map((c) => c.id.split('checkbox-wrapper-')[1]);
+                const conversationsOrder = Array.from(conversationList.querySelectorAll('[id^=checkbox-wrapper-]')).map((c) => c.id.split('checkbox-wrapper-')[1]?.slice(0, 5));
 
                 if (lastSelectedConversation) {
                   // find last conversation index in conversationsOrder
-                  let lastConversationIndex = conversationsOrder.findIndex((c) => c === lastSelectedConversation.id);
-                  let newConversationIndex = conversationsOrder.findIndex((c) => c === conversation.id);
+                  let lastConversationIndex = conversationsOrder.findIndex((c) => c === lastSelectedConversation.id?.slice(0, 5));
+                  let newConversationIndex = conversationsOrder.findIndex((c) => c === conversation.id?.slice(0, 5));
 
                   if (lastConversationIndex === -1 || newConversationIndex === -1) {
-                    const folderConatainingLastConversation = conversationsOrder.find((f) => f.conversationIds?.find((cid) => cid === lastSelectedConversation.id));
+                    const folderConatainingLastConversation = conversationsOrder.find((f) => f.conversationIds?.find((cid) => cid === lastSelectedConversation.id?.slice(0, 5)));
 
-                    const folderConatainingNewConversation = conversationsOrder.find((f) => f.conversationIds?.find((cid) => cid === conversation.id));
+                    const folderConatainingNewConversation = conversationsOrder.find((f) => f.conversationIds?.find((cid) => cid === conversation.id?.slice(0, 5)));
 
                     if (folderConatainingLastConversation?.id === folderConatainingNewConversation?.id) {
-                      lastConversationIndex = folderConatainingLastConversation?.conversationIds?.findIndex((cid) => cid === lastSelectedConversation.id);
-                      newConversationIndex = folderConatainingNewConversation?.conversationIds?.findIndex((cid) => cid === conversation.id);
-                      const conversationsToSelect = folderConatainingLastConversation.conversationIds.slice(Math.min(lastConversationIndex, newConversationIndex) + 1, Math.max(lastConversationIndex, newConversationIndex)).filter((f) => typeof f === 'string');
+                      lastConversationIndex = folderConatainingLastConversation?.conversationIds?.findIndex((cid) => cid === lastSelectedConversation.id?.slice(0, 5));
+                      newConversationIndex = folderConatainingNewConversation?.conversationIds?.findIndex((cid) => cid === conversation.id?.slice(0, 5));
+                      const conversationsToSelect = folderConatainingLastConversation.conversationIds?.slice(Math.min(lastConversationIndex, newConversationIndex) + 1, Math.max(lastConversationIndex, newConversationIndex)).filter((f) => typeof f === 'string');
 
                       // click on the new conversation to select it
                       conversationsToSelect.forEach((cid) => {
-                        if (!selectedConversations.map((conv) => conv.id).includes(cid)) {
-                          newSelectedConversations.push(conversations[cid]);
+                        const conv = Object.values(conversations).find((c) => c.id?.slice(0, 5) === cid);
+                        if (!selectedConversations.map((c) => c.id).includes(conv.id)) {
+                          newSelectedConversations.push(conv);
                         }
-                        const convElement = document.querySelector(`#checkbox-wrapper-${cid}`);
+                        const convElement = document.querySelector(`#checkbox-wrapper-${conv.id}`);
 
                         if (convElement && !convElement.querySelector('#checkbox').checked) {
                           convElement.querySelector('#checkbox').checked = true;
                         }
                       });
-                      chrome.storage.local.set({ selectedConversations: newSelectedConversations });
                     }
                   } else {
                     // select all conversations between the last selected and the current one
@@ -178,17 +179,19 @@ function updateTimestamp(conversationList) {
 
                     // click on the new conversation to select it
                     conversationsToSelect.forEach((cid) => {
-                      if (!selectedConversations.map((conv) => conv.id).includes(cid)) {
-                        newSelectedConversations.push(conversations[cid]);
+                      const conv = Object.values(conversations).find((c) => c.id?.slice(0, 5) === cid);
+
+                      if (!selectedConversations.map((c) => c.id).includes(conv.id)) {
+                        newSelectedConversations.push(conv);
                       }
-                      const convElement = document.querySelector(`#checkbox-wrapper-${cid}`);
+                      const convElement = document.querySelector(`#checkbox-wrapper-${conv.id}`);
 
                       if (convElement && !convElement.querySelector('#checkbox').checked) {
                         convElement.querySelector('#checkbox').checked = true;
                       }
                     });
-                    chrome.storage.local.set({ selectedConversations: newSelectedConversations });
                   }
+                  chrome.storage.local.set({ selectedConversations: newSelectedConversations });
                   updateButtonsAfterSelection(selectedConversations, newSelectedConversations);
                 }
                 chrome.storage.local.set({ lastSelectedConversation: conversation });
@@ -217,27 +220,19 @@ function updateTimestamp(conversationList) {
     });
   });
 }
-function updateButtonsAfterSelection(selectedConversations, newSelectedConversations) {
+function updateButtonsAfterSelection(previousSelectedConversations, newSelectedConversations) {
+  const previousText = previousSelectedConversations.length === 0 ? 'All' : `${previousSelectedConversations.length} Selected`;
+  const newText = newSelectedConversations.length === 0 ? 'All' : `${newSelectedConversations.length} Selected`;
   const nav = document.querySelector('nav');
-  const newChatButton = nav.querySelector('a');
+  const newChatButton = nav?.querySelector('a');
   // chenge export all to export selected
   const exportAllButton = document.querySelector('#export-all-button');
   if (exportAllButton) {
-    // keep export all icon, but change the text
-    if (newSelectedConversations.length === 1) {
-      exportAllButton.innerHTML = exportAllButton.innerHTML.replace('Export All', `Export ${newSelectedConversations.length} Selected`);
-    } else {
-      exportAllButton.innerHTML = exportAllButton.innerHTML.replace(`Export ${selectedConversations.length} Selected`, `Export ${newSelectedConversations.length} Selected`);
-    }
+    exportAllButton.innerHTML = exportAllButton.innerHTML.replace(`Export ${previousText}`, `Export ${newText}`);
   }
   const deleteConversationsButton = document.querySelector('#delete-conversations-button');
   if (deleteConversationsButton) {
-    // keep export all icon, but change the text
-    if (newSelectedConversations.length === 1) {
-      deleteConversationsButton.innerHTML = deleteConversationsButton.innerHTML.replace('Delete All', `Delete ${newSelectedConversations.length} Selected`);
-    } else {
-      deleteConversationsButton.innerHTML = deleteConversationsButton.innerHTML.replace(`Delete ${selectedConversations.length} Selected`, `Delete ${newSelectedConversations.length} Selected`);
-    }
+    deleteConversationsButton.innerHTML = deleteConversationsButton.innerHTML.replace(`Delete ${previousText}`, `Delete ${newText}`);
   }
   if (newSelectedConversations.length > 0) {
     // show an x svg followed by clear selection

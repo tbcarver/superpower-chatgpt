@@ -91,6 +91,7 @@ function loadConversationFromNode(conversationId, newMessageId, oldMessageId, se
       initializeStopGeneratingResponseButton();
       addPinNav(sortedNodes);
       updateModel(sortedNodes[sortedNodes.length - 1].message?.metadata?.model_slug);
+      updateTotalCounter();
     });
   });
 }
@@ -102,7 +103,7 @@ function loadConversation(conversationId, searchValue = '', focusOnInput = true)
   chrome.storage.sync.get(['name', 'avatar', 'conversationsOrder'], (result) => {
     chrome.storage.local.get(['conversations', 'settings', 'models'], (res) => {
       const { conversationsOrder } = result;
-      const folderConatainingConversation = conversationsOrder.find((folder) => folder?.conversationIds?.includes(conversationId));
+      const folderConatainingConversation = conversationsOrder.find((folder) => folder?.conversationIds?.includes(conversationId?.slice(0, 5)));
       let folderName = '';
       if (folderConatainingConversation) {
         folderName = folderConatainingConversation.name;
@@ -147,6 +148,7 @@ function loadConversation(conversationId, searchValue = '', focusOnInput = true)
       if (fullConversation.archived) {
         messageDiv = '<div id="conversation-top"></div><div style="display: flex; align-items: center; justify-content: center; min-height: 56px; width: 100%; color:white; background-color: #ff0000; position: sticky; top: 0;z-index:1;">This is an archived chat. You can read archived chats, but you cannot continue them.</div>';
       }
+      messageDiv.id = 'conversation-wrapper';
       for (let i = 0; i < sortedNodes.length; i += 1) {
         const { message, threadCount, threadIndex } = sortedNodes[i];
         // eslint-disable-next-line no-continue
@@ -163,11 +165,17 @@ function loadConversation(conversationId, searchValue = '', focusOnInput = true)
       bottomDiv.id = 'conversation-bottom';
       bottomDiv.classList = 'w-full h-32 md:h-48 flex-shrink-0';
       conversationDiv.appendChild(bottomDiv);
-
+      const bottomDivContent = document.createElement('div');
+      bottomDivContent.classList = 'relative text-base gap-4 md:gap-6 m-auto md:max-w-2xl lg:max-w-2xl xl:max-w-3xl flex lg:px-0';
+      bottomDiv.appendChild(bottomDivContent);
+      const totalCounter = document.createElement('div');
+      totalCounter.id = 'total-counter';
+      totalCounter.style = 'position: absolute; top: 0px; right: 0px; font-size: 10px; color: rgb(153, 153, 153); opacity: 0.8; z-index: 100;';
+      bottomDivContent.appendChild(totalCounter);
       innerDiv.appendChild(conversationDiv);
       outerDiv.appendChild(innerDiv);
-
-      main.firstChild.remove();
+      const contentWrapper = main.querySelector('.flex-1.overflow-hidden');
+      contentWrapper.remove();
       main.prepend(outerDiv);
       if (!searchValue) {
         if (focusOnInput) {
@@ -178,7 +186,7 @@ function loadConversation(conversationId, searchValue = '', focusOnInput = true)
         innerDiv.scrollTop = innerDiv.scrollHeight;
       } else {
         // scroll to the first highlighted element usin mark tag
-        const searchElement = document.querySelector('mark');
+        const searchElement = document.querySelector('main').querySelector('mark');
 
         if (searchElement) {
           searchElement.scrollIntoView();
@@ -194,10 +202,25 @@ function loadConversation(conversationId, searchValue = '', focusOnInput = true)
       }
       addPinNav(sortedNodes);
       updateModel(sortedNodes[sortedNodes.length - 1].message?.metadata?.model_slug);
+      updateTotalCounter();
     });
   });
 }
-
+function updateTotalCounter() {
+  const totalCounterElement = document.querySelector('#total-counter');
+  if (!totalCounterElement) return;
+  const allMessages = document.querySelectorAll('[id^=message-text-]');
+  // add the total number of words  and characters
+  let totalWords = 0;
+  let totalCharacters = 0;
+  allMessages.forEach((message) => {
+    const text = message.innerText;
+    const words = text.split(' ');
+    totalWords += words.length;
+    totalCharacters += text.length;
+  });
+  totalCounterElement.innerHTML = `Total: ${totalCharacters} chars / ${totalWords} words`;
+}
 function addCopyCodeButtonsEventListeners() {
   const copyCodeButtons = document.querySelectorAll('[id="copy-code"][data-initialized="false"]');
 
